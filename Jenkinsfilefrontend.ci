@@ -32,7 +32,6 @@ pipeline {
         stage('Docker Build') {
             steps {
                 sh '''
-                sudo su
                 cd frontend
                 docker build -t $ECR_REPO .
                 docker tag $ECR_REPO:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
@@ -43,7 +42,6 @@ pipeline {
         stage('Push Image to ECR') {
             steps {
                 sh '''
-                sudo su
                 docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
                 '''
             }
