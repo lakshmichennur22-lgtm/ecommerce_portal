@@ -2,8 +2,8 @@
 set -e
 
 AWS_REGION="us-east-1"
-STATE_BUCKET="project1-terraform-state-dev-s3"
-LOCK_TABLE="terraform1-locks-dev"
+STATE_BUCKET="projectecom-terraform-state-dev-s3"
+LOCK_TABLE="terraformecom-locks-dev"
 
 echo "Creating S3 bucket for Terraform state..."
 
