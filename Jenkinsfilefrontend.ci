@@ -3,8 +3,8 @@ pipeline {
 
     environment {
         AWS_REGION = "us-east-1"
-        AWS_ACCOUNT_ID = "997948075617"
-        ECR_REPO = "hospital_portal_frontend_repo"
+        AWS_ACCOUNT_ID = "579201838441"
+        ECR_REPO = "ecomm_frontend_portal_repo"
         IMAGE_TAG = "latest"
     }
 
