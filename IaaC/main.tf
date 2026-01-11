@@ -188,7 +188,7 @@ resource "aws_lb_listener_rule" "backend_rule" {
 
   condition {
     path_pattern {
-      values = ["/order/*", "/order"]
+      values = ["/api/order/*", "/api/order"]
     }
   }
 }
@@ -200,7 +200,7 @@ resource "aws_lb_target_group" "backend_tg" {
   target_type = "ip"
 
   health_check {
-    path                = "/order/health"
+    path                = "/api/order/health"
     matcher             = "200"
     interval            = 30
   }

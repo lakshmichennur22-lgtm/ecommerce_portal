@@ -24,6 +24,10 @@ public class OrderController {
     public List<OrderItem> getAllOrders() {
         return repo.findAll();
     }
+    @GetMapping("/health")
+    public String health() {
+        return "OK";
+    }
 
     @PostMapping
     public OrderItem createOrder(@RequestBody OrderItem order) {
