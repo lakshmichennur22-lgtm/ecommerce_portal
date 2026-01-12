@@ -25,8 +25,8 @@ public class OrderController {
         return repo.findAll();
     }
     @GetMapping("/health")
-    public String health() {
-        return "OK";
+    public ResponseEntity<String> health() {
+        return ResponseEntity.ok("OK");
     }
 
     @PostMapping
