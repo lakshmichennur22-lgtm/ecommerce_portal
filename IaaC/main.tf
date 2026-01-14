@@ -1,4 +1,16 @@
 ########################################
+# VARIABLES (define these in variables.tf)
+########################################
+variable "aws_region" {}
+variable "project" {}
+variable "application" {}
+variable "environment" {}
+variable "location" {}
+variable "location_short" {}
+variable "frontend_image" {}
+variable "backend_image" {}
+
+########################################
 # PROVIDER
 ########################################
 provider "aws" {
@@ -26,7 +38,7 @@ resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
-  tags = local.tags
+  tags                 = local.tags
 }
 
 resource "aws_internet_gateway" "igw" {
@@ -82,7 +94,7 @@ resource "aws_ecs_cluster" "ecs" {
 }
 
 ########################################
-# IAM EXECUTION ROLE (CRITICAL FIX)
+# IAM EXECUTION ROLE
 ########################################
 resource "aws_iam_role" "ecs_execution_role" {
   name = "${local.name_prefix}-execution-role"
@@ -90,9 +102,9 @@ resource "aws_iam_role" "ecs_execution_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
-      Effect = "Allow",
-      Principal = { Service = "ecs-tasks.amazonaws.com" },
-      Action = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
     }]
   })
 }
@@ -244,25 +256,23 @@ resource "aws_ecs_task_definition" "frontend" {
 
   execution_role_arn = aws_iam_role.ecs_execution_role.arn
 
-  container_definitions = jsonencode([
-    {
-      name  = "frontend"
-      image = var.frontend_image
+  container_definitions = jsonencode([{
+    name  = "frontend"
+    image = var.frontend_image
 
-      portMappings = [{
-        containerPort = 80
-      }]
+    portMappings = [{
+      containerPort = 80
+    }]
 
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = aws_cloudwatch_log_group.frontend.name
-          awslogs-region        = var.aws_region
-          awslogs-stream-prefix = "ecs"
-        }
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.frontend.name
+        awslogs-region        = var.aws_region
+        awslogs-stream-prefix = "ecs"
       }
     }
-  ])
+  }])
 }
 
 ########################################
@@ -277,29 +287,28 @@ resource "aws_ecs_task_definition" "backend" {
 
   execution_role_arn = aws_iam_role.ecs_execution_role.arn
 
-  container_definitions = jsonencode([
-    {
-      name  = "backend"
-      image = var.backend_image
+  container_definitions = jsonencode([{
+    name  = "backend"
+    image = var.backend_image
 
-      portMappings = [{
-        containerPort = 8080
-      }]
+    portMappings = [{
+      containerPort = 8080
+    }]
 
-      environment = [
-        { name = "SPRING_PROFILES_ACTIVE", value = "prod" }
-      ]
+    environment = [{
+      name  = "SPRING_PROFILES_ACTIVE"
+      value = "prod"
+    }]
 
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = aws_cloudwatch_log_group.backend.name
-          awslogs-region        = var.aws_region
-          awslogs-stream-prefix = "ecs"
-        }
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.backend.name
+        awslogs-region        = var.aws_region
+        awslogs-stream-prefix = "ecs"
       }
     }
-  ])
+  }])
 }
 
 ########################################
