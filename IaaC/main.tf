@@ -1,4 +1,11 @@
 ########################################
+# PROVIDER
+########################################
+provider "aws" {
+  region = var.aws_region
+}
+
+########################################
 # LOCALS
 ########################################
 locals {
@@ -9,13 +16,12 @@ locals {
     application = var.application
     environment = var.environment
     location    = var.location
-    blockcode   = var.blockcode
   }
 }
 
-############################
+########################################
 # VPC
-############################
+########################################
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
@@ -27,36 +33,36 @@ resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
 }
 
-############################
-# Subnets
-############################
+########################################
+# SUBNETS
+########################################
+data "aws_availability_zones" "azs" {}
+
 resource "aws_subnet" "public" {
-  count = 2
+  count                   = 2
   vpc_id                  = aws_vpc.main.id
   cidr_block              = cidrsubnet("10.0.0.0/16", 4, count.index)
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  availability_zone       = data.aws_availability_zones.azs.names[count.index]
   map_public_ip_on_launch = true
   tags = merge(local.tags, { Name = "${local.name_prefix}-public-${count.index}" })
 }
 
 resource "aws_subnet" "private" {
-  count = 2
+  count             = 2
   vpc_id            = aws_vpc.main.id
   cidr_block        = cidrsubnet("10.0.0.0/16", 4, count.index + 4)
-  availability_zone = data.aws_availability_zones.available.names[count.index]
+  availability_zone = data.aws_availability_zones.azs.names[count.index]
   tags = merge(local.tags, { Name = "${local.name_prefix}-private-${count.index}" })
 }
 
-data "aws_availability_zones" "available" {}
-
-############################
-# Routes
-############################
+########################################
+# ROUTES
+########################################
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 }
 
-resource "aws_route" "public_internet" {
+resource "aws_route" "public_igw" {
   route_table_id         = aws_route_table.public.id
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = aws_internet_gateway.igw.id
@@ -68,28 +74,38 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
-}
-
-resource "aws_route_table_association" "private" {
-  count          = 2
-  subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
-}
-
-############################
-# ECS Cluster
-############################
+########################################
+# ECS CLUSTER
+########################################
 resource "aws_ecs_cluster" "ecs" {
   name = "${local.name_prefix}-ecs"
 }
 
-############################
-# Security Groups
-############################
+########################################
+# IAM EXECUTION ROLE (CRITICAL FIX)
+########################################
+resource "aws_iam_role" "ecs_execution_role" {
+  name = "${local.name_prefix}-execution-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Principal = { Service = "ecs-tasks.amazonaws.com" },
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
+  role       = aws_iam_role.ecs_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+########################################
+# SECURITY GROUPS
+########################################
 resource "aws_security_group" "alb_sg" {
-  name   = "${local.name_prefix}-alb-sg"
   vpc_id = aws_vpc.main.id
 
   ingress {
@@ -108,12 +124,11 @@ resource "aws_security_group" "alb_sg" {
 }
 
 resource "aws_security_group" "frontend_sg" {
-  name   = "${local.name_prefix}-frontend-sg"
   vpc_id = aws_vpc.main.id
 
   ingress {
-    from_port       = 3000
-    to_port         = 3000
+    from_port       = 80
+    to_port         = 80
     protocol        = "tcp"
     security_groups = [aws_security_group.alb_sg.id]
   }
@@ -127,7 +142,6 @@ resource "aws_security_group" "frontend_sg" {
 }
 
 resource "aws_security_group" "backend_sg" {
-  name   = "${local.name_prefix}-backend-sg"
   vpc_id = aws_vpc.main.id
 
   ingress {
@@ -145,29 +159,40 @@ resource "aws_security_group" "backend_sg" {
   }
 }
 
-############################
+########################################
 # ALB
-############################
+########################################
 resource "aws_lb" "alb" {
   name               = "${local.name_prefix}-alb"
-  internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_sg.id]
   subnets            = aws_subnet.public[*].id
 }
 
 resource "aws_lb_target_group" "frontend_tg" {
-  name     = "${local.name_prefix}-frontend-tg"
-  port     = 3000
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
   target_type = "ip"
+
   health_check {
     path = "/"
   }
 }
 
-resource "aws_lb_listener" "alb_listener" {
+resource "aws_lb_target_group" "backend_tg" {
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
+
+  health_check {
+    path    = "/actuator/health"
+    matcher = "200"
+  }
+}
+
+resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.alb.arn
   port              = 80
   protocol          = "HTTP"
@@ -177,87 +202,109 @@ resource "aws_lb_listener" "alb_listener" {
     target_group_arn = aws_lb_target_group.frontend_tg.arn
   }
 }
-resource "aws_lb_listener_rule" "backend_rule" {
-  listener_arn = aws_lb_listener.alb_listener.arn
+
+resource "aws_lb_listener_rule" "backend" {
+  listener_arn = aws_lb_listener.http.arn
   priority     = 10
+
+  condition {
+    path_pattern {
+      values = ["/api/*"]
+    }
+  }
 
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.backend_tg.arn
   }
-
-  condition {
-    path_pattern {
-      values = ["/api/orders/*", "/api/orders"]
-    }
-  }
-}
-resource "aws_lb_target_group" "backend_tg" {
-  name        = "${local.name_prefix}-backend-tg"
-  port        = 8080
-  protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
-  target_type = "ip"
-
-  health_check {
-    path                = "/api/orders/health"
-    matcher             = "200"
-    interval            = 30
-  }
-}
-############################
-# IAM Role
-############################
-resource "aws_iam_role" "ecs_task_role" {
-  name = "${local.name_prefix}-task-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect = "Allow",
-      Principal = { Service = "ecs-tasks.amazonaws.com" },
-      Action = "sts:AssumeRole"
-    }]
-  })
 }
 
-resource "aws_iam_role_policy_attachment" "ecs_ecr" {
-  role       = aws_iam_role.ecs_task_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+########################################
+# CLOUDWATCH LOG GROUPS
+########################################
+resource "aws_cloudwatch_log_group" "frontend" {
+  name              = "/ecs/${local.name_prefix}-frontend"
+  retention_in_days = 7
 }
 
-############################
+resource "aws_cloudwatch_log_group" "backend" {
+  name              = "/ecs/${local.name_prefix}-backend"
+  retention_in_days = 7
+}
+
+########################################
 # FRONTEND TASK
-############################
+########################################
 resource "aws_ecs_task_definition" "frontend" {
   family                   = "${local.name_prefix}-frontend"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = 256
-  memory                   = 512
-  execution_role_arn       = aws_iam_role.ecs_task_role.arn
+  cpu    = 256
+  memory = 512
+
+  execution_role_arn = aws_iam_role.ecs_execution_role.arn
 
   container_definitions = jsonencode([
     {
-      name      = "frontend"
-      image     = var.frontend_image
-      essential = true
+      name  = "frontend"
+      image = var.frontend_image
+
       portMappings = [{
-        containerPort = 3000
-        protocol      = "tcp"
+        containerPort = 80
       }]
+
       logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        awslogs-group         = "/ecs/${local.name_prefix}-frontend"
-        awslogs-region        = var.aws_region
-        awslogs-stream-prefix = "ecs"
-      }     
-    }
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.frontend.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "ecs"
+        }
+      }
     }
   ])
 }
 
+########################################
+# BACKEND TASK
+########################################
+resource "aws_ecs_task_definition" "backend" {
+  family                   = "${local.name_prefix}-backend"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu    = 256
+  memory = 512
+
+  execution_role_arn = aws_iam_role.ecs_execution_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name  = "backend"
+      image = var.backend_image
+
+      portMappings = [{
+        containerPort = 8080
+      }]
+
+      environment = [
+        { name = "SPRING_PROFILES_ACTIVE", value = "prod" }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.backend.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "ecs"
+        }
+      }
+    }
+  ])
+}
+
+########################################
+# ECS SERVICES
+########################################
 resource "aws_ecs_service" "frontend" {
   name            = "${local.name_prefix}-frontend"
   cluster         = aws_ecs_cluster.ecs.id
@@ -274,40 +321,8 @@ resource "aws_ecs_service" "frontend" {
   load_balancer {
     target_group_arn = aws_lb_target_group.frontend_tg.arn
     container_name   = "frontend"
-    container_port   = 3000
+    container_port   = 80
   }
-}
-
-############################
-# BACKEND TASK
-############################
-resource "aws_ecs_task_definition" "backend" {
-  family                   = "${local.name_prefix}-backend"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  cpu                      = 256
-  memory                   = 512
-  execution_role_arn       = aws_iam_role.ecs_task_role.arn
-
-  container_definitions = jsonencode([
-    {
-      name      = "backend"
-      image     = var.backend_image
-      essential = true
-      portMappings = [{
-        containerPort = 8080
-        protocol      = "tcp"
-      }]
-      logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        awslogs-group         = "/ecs/${local.name_prefix}-backend"
-        awslogs-region        = var.aws_region
-        awslogs-stream-prefix = "ecs"
-      }     
-    }
-    }
-  ])
 }
 
 resource "aws_ecs_service" "backend" {
@@ -316,142 +331,17 @@ resource "aws_ecs_service" "backend" {
   task_definition = aws_ecs_task_definition.backend.arn
   desired_count   = 1
   launch_type     = "FARGATE"
-  health_check_grace_period_seconds = 120   # ✅ ADD THIS
+
+  health_check_grace_period_seconds = 120
+
   network_configuration {
     subnets         = aws_subnet.private[*].id
     security_groups = [aws_security_group.backend_sg.id]
   }
+
   load_balancer {
     target_group_arn = aws_lb_target_group.backend_tg.arn
     container_name   = "backend"
     container_port   = 8080
   }
 }
-
-############################
-# VPC ENDPOINT SECURITY GROUP
-############################
-resource "aws_security_group" "vpc_endpoints_sg" {
-  name   = "${local.name_prefix}-vpce-sg"
-  vpc_id = aws_vpc.main.id
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [aws_vpc.main.cidr_block]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-############################
-# ECR + S3 + Logs Endpoints
-############################
-resource "aws_vpc_endpoint" "ecr_api" {
-  vpc_id              = aws_vpc.main.id
-  service_name        = "com.amazonaws.${var.aws_region}.ecr.api"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = aws_subnet.private[*].id
-  security_group_ids  = [aws_security_group.vpc_endpoints_sg.id]
-  private_dns_enabled = true
-}
-
-resource "aws_vpc_endpoint" "ecr_dkr" {
-  vpc_id              = aws_vpc.main.id
-  service_name        = "com.amazonaws.${var.aws_region}.ecr.dkr"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = aws_subnet.private[*].id
-  security_group_ids  = [aws_security_group.vpc_endpoints_sg.id]
-  private_dns_enabled = true
-}
-
-resource "aws_vpc_endpoint" "logs" {
-  vpc_id              = aws_vpc.main.id
-  service_name        = "com.amazonaws.${var.aws_region}.logs"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = aws_subnet.private[*].id
-  security_group_ids  = [aws_security_group.vpc_endpoints_sg.id]
-  private_dns_enabled = true
-}
-
-resource "aws_vpc_endpoint" "s3" {
-  vpc_id            = aws_vpc.main.id
-  vpc_endpoint_type = "Gateway"
-  service_name      = "com.amazonaws.${var.aws_region}.s3"
-  route_table_ids   = [aws_route_table.private.id]
-}
-############################
-# SECURITY GROUP FOR DB
-############################
-resource "aws_security_group" "db_sg" {
-  name   = "${local.name_prefix}-db-sg"
-  vpc_id = aws_vpc.main.id
-
-  # Allow backend to connect
-  ingress {
-    from_port       = 3306
-    to_port         = 3306
-    protocol        = "tcp"
-    security_groups = [aws_security_group.backend_sg.id]
-  }
-
-  # Allow all outbound traffic
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(local.tags, { Name = "${local.name_prefix}-db-sg" })
-}
-
-############################
-# DB SUBNET GROUP
-############################
-resource "aws_db_subnet_group" "db_subnet" {
-  name       = "${local.name_prefix}-db-subnet-group"
-  subnet_ids = aws_subnet.private[*].id
-
-  tags = merge(local.tags, { Name = "${local.name_prefix}-db-subnet-group" })
-}
-
-############################
-# RDS MYSQL INSTANCE
-############################
-resource "aws_db_instance" "mysql" {
-  identifier        = "${local.name_prefix}-mysql"
-  engine            = "mysql"
-  engine_version    = "8.0"
-  instance_class    = "db.t3.micro"
-  allocated_storage = 5
-  db_name           = "mydatabase"
-  username          = "admin"
-  password          = "YourStrongPass123"
-  skip_final_snapshot = true
-
-  vpc_security_group_ids = [aws_security_group.db_sg.id]
-  db_subnet_group_name   = aws_db_subnet_group.db_subnet.name
-  publicly_accessible    = false
-  multi_az               = false
-  backup_retention_period = 1
-  auto_minor_version_upgrade = true
-
-  tags = merge(local.tags, { Name = "${local.name_prefix}-mysql" })
-}
-resource "aws_cloudwatch_log_group" "frontend" {
-  name              = "/ecs/${local.name_prefix}-frontend"
-  retention_in_days = 7
-}
-
-resource "aws_cloudwatch_log_group" "backend" {
-  name              = "/ecs/${local.name_prefix}-backend"
-  retention_in_days = 7
-}
-
