@@ -258,7 +258,7 @@ resource "aws_ecs_task_definition" "frontend" {
 
   container_definitions = jsonencode([{
     name  = "frontend"
-    image = var.frontend_image
+    image = var.frontend_image {}
 
     portMappings = [{
       containerPort = 80
@@ -289,7 +289,7 @@ resource "aws_ecs_task_definition" "backend" {
 
   container_definitions = jsonencode([{
     name  = "backend"
-    image = var.backend_image
+    image = var.backend_image {}
 
     portMappings = [{
       containerPort = 8080
