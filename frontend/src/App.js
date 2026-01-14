@@ -16,22 +16,30 @@ function App() {
     setForm({ name: "", address: "", phone: "" });
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (!selectedProduct) return alert("No product selected");
+
     if (!form.name || !form.address || !form.phone) {
-      alert("Please fill all details");
-      return;
+      return alert("Please fill all details");
     }
 
-    createOrder({
-      productName: selectedProduct.name,
-      price: selectedProduct.price,
-      customerName: form.name,
-      customerAddress: form.address,
-      customerPhone: form.phone
-    }).then(() => {
-      alert("Order placed!");
-      setSelectedProduct(null); // back to product list
-    });
+    try {
+      console.log("API Base URL:", process.env.REACT_APP_API_BASE); // debug
+      const res = await createOrder({
+        productName: selectedProduct.name,
+        price: selectedProduct.price,
+        customerName: form.name,
+        customerAddress: form.address,
+        customerPhone: form.phone
+      });
+
+      console.log("Order response:", res.data);
+      alert("Order placed successfully!");
+      setSelectedProduct(null);
+    } catch (err) {
+      console.error("Order failed:", err.response?.data || err.message);
+      alert("Order failed. Check console.");
+    }
   };
 
   // Product list view
@@ -52,7 +60,6 @@ function App() {
             </div>
           ))}
         </div>
-        <h2>this is E-commerce Shopping portal</h2>
       </div>
     );
   }
@@ -70,20 +77,18 @@ function App() {
         placeholder="Your Name"
         value={form.name}
         onChange={(e) => setForm({ ...form, name: e.target.value })}
-      />
-      <br />
+      /><br/>
       <input
         placeholder="Your Address"
         value={form.address}
         onChange={(e) => setForm({ ...form, address: e.target.value })}
-      />
-      <br />
+      /><br/>
       <input
+        type="tel"
         placeholder="Your Phone"
         value={form.phone}
         onChange={(e) => setForm({ ...form, phone: e.target.value })}
-      />
-      <br />
+      /><br/>
       <button onClick={handleSubmit}>Place Order</button>
     </div>
   );

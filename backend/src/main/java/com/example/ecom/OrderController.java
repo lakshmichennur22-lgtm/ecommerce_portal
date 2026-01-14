@@ -1,17 +1,16 @@
 package com.example.ecom;
 
 import java.util.List;
-
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.http.ResponseEntity;
+
 @RestController
 @RequestMapping("/api/orders")
-@CrossOrigin(origins = "*")
+@CrossOrigin(
+    origins = "*",
+    allowedHeaders = "*",
+    methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.OPTIONS}
+)
 public class OrderController {
 
     private final OrderRepository repo;
@@ -24,13 +23,22 @@ public class OrderController {
     public List<OrderItem> getAllOrders() {
         return repo.findAll();
     }
+
     @GetMapping("/health")
     public ResponseEntity<String> health() {
         return ResponseEntity.ok("OK");
     }
 
     @PostMapping
-    public OrderItem createOrder(@RequestBody OrderItem order) {
-        return repo.save(order);
+    public ResponseEntity<?> createOrder(@RequestBody OrderItem order) {
+        if (order.getProductName() == null || order.getCustomerName() == null) {
+            return ResponseEntity.badRequest().body("Missing required fields");
+        }
+        try {
+            OrderItem saved = repo.save(order);
+            return ResponseEntity.ok(saved);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Failed to save order: " + e.getMessage());
+        }
     }
 }
