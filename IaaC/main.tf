@@ -246,6 +246,14 @@ resource "aws_ecs_task_definition" "frontend" {
         containerPort = 3000
         protocol      = "tcp"
       }]
+      logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = "/ecs/${local.name_prefix}-frontend"
+        awslogs-region        = var.aws_region
+        awslogs-stream-prefix = "ecs"
+      }     
+    }
     }
   ])
 }
@@ -290,6 +298,14 @@ resource "aws_ecs_task_definition" "backend" {
         containerPort = 8080
         protocol      = "tcp"
       }]
+      logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = "/ecs/${local.name_prefix}-backend"
+        awslogs-region        = var.aws_region
+        awslogs-stream-prefix = "ecs"
+      }     
+    }
     }
   ])
 }
@@ -428,5 +444,14 @@ resource "aws_db_instance" "mysql" {
   auto_minor_version_upgrade = true
 
   tags = merge(local.tags, { Name = "${local.name_prefix}-mysql" })
+}
+resource "aws_cloudwatch_log_group" "frontend" {
+  name              = "/ecs/${local.name_prefix}-frontend"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "backend" {
+  name              = "/ecs/${local.name_prefix}-backend"
+  retention_in_days = 7
 }
 
